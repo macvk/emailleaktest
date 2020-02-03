@@ -2,9 +2,10 @@
 Your IP can be exposed during email sending. The test analyzes mail headers and shows IP leaks.
 
 ## How to install & use
-Please choose the operating system you use, see below.
+Please choose the operating system you use, see below. [Windows](#windows) or [Linux](#linux)
 
 ### Windows
+You can use [batch file](#windows---batch-file).
 
 #### Windows - Batch file
 
@@ -20,6 +21,7 @@ emailleaktest.bat
 ```
 
 ### Linux
+You can use [bash shell script](#linux---bash-shell-script).
 
 #### Linux - Bash shell script
 
