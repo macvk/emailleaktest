@@ -1,7 +1,12 @@
 # Email IP Leak Test
 Your IP can be exposed during email sending. The test analyzes mail headers and shows IP leaks.
 
-## Windows
+## How to install & use
+Please choose the operating system you use, see below.
+
+### Windows
+
+#### Windows - Batch file
 
 1. Download emailleaktest.bat
 
@@ -14,7 +19,9 @@ powershell -command "& { (New-Object Net.WebClient).DownloadFile('https://raw.gi
 emailleaktest.bat
 ```
 
-## Linux
+### Linux
+
+#### Linux - Bash shell script
 
 1. Download emailleaktest.sh
 ```
