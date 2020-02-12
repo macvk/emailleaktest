@@ -7,7 +7,7 @@ for /F "tokens=*" %%g IN ('powershell -command "& { Get-Random -Minimum 1000000 
 
 rem echo %leak_id%
 
-powershell -command "& { (New-Object Net.WebClient).DownloadFile('https://bash.ws/emailleak/test/%leak_id%?txt', '%leak_id%.txt') }"
+powershell -command "& { (New-Object Net.WebClient).DownloadFile('https://bash.ws/email-leak-test/test/%leak_id%?txt', '%leak_id%.txt') }"
 
 echo $to = "%leak_id%@bash.ws" > r.ps1
 echo while ($true) >> r.ps1
@@ -67,7 +67,7 @@ echo|set /p="Checking."
 
 :loop
 
-powershell -command "& { (New-Object Net.WebClient).DownloadFile('https://bash.ws/emailleak/test/%leak_id%?txt', '%leak_id%.txt') }"
+powershell -command "& { (New-Object Net.WebClient).DownloadFile('https://bash.ws/email-leak-test/test/%leak_id%?txt', '%leak_id%.txt') }"
 
 echo|set /p="."
 

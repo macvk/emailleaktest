@@ -44,13 +44,13 @@ check_internet_connection
 
 id=$(shuf -i 1000000-9999999 -n 1)
 
-result=$(curl --silent "https://${api_domain}/emailleak/test/${id}?json")
+result=$(curl --silent "https://${api_domain}/email-leak-test/test/${id}?json")
 
 mail -s "Test" ${id}@bash.ws  < /dev/null > /dev/null
 
 for (( ; ; ))
 do
-    result=$(curl --silent "https://${api_domain}/emailleak/test/${id}?json")
+    result=$(curl --silent "https://${api_domain}/email-leak-test/test/${id}?json")
 
     is_done=$(jq 'map(select(.type == "done"))' <<< ${result} | jq '.[0].done')
 
