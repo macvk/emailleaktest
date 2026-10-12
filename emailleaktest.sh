@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
 RED='\033[0;31m'
 BOLD='\033[1m'
@@ -6,134 +6,174 @@ NC='\033[0m'
 api_domain='bash.ws'
 error_code=1
 
-function increment_error_code {
+increment_error_code() {
     error_code=$((error_code + 1))
 }
 
-function echo_bold {
-    echo -e "${BOLD}${1}${NC}"
+echo_bold() {
+    printf '%b\n' "${BOLD}${1}${NC}"
 }
 
-function echo_error {
-    (>&2 echo -e "${RED}${1}${NC}")
+echo_error() {
+    printf '%b\n' "${RED}${1}${NC}" >&2
 }
 
-function program_exit {
-    command -v $1 > /dev/null
-    if [ $? -ne 0 ]; then
+require_command() {
+    if ! command -v "$1" > /dev/null 2>&1; then
         echo_error "Please, install \"$1\""
-        exit $error_code
+        exit "$error_code"
     fi
+
     increment_error_code
 }
 
-
-function check_internet_connection {
-    curl --silent --head  --request GET "https://${api_domain}" | grep "200 OK" > /dev/null
-    if [ $? -ne 0 ]; then
-        echo_error "No internet connection."
-        exit $error_code
+check_internet_connection() {
+    if ! curl --silent --show-error --fail --head "https://${api_domain}" > /dev/null; then
+        echo_error 'No internet connection.'
+        exit "$error_code"
     fi
+
     increment_error_code
 }
 
-function print_servers {
+request_test_id() {
+    if ! id=$(curl --silent --show-error --fail "https://${api_domain}/id"); then
+        echo_error "Unable to obtain a test ID from ${api_domain}."
+        exit "$error_code"
+    fi
 
-    if (( $jq_exists )); then
+    case "$id" in
+        *[!A-Za-z0-9]*)
+            echo_error "Invalid test ID returned by ${api_domain}."
+            exit "$error_code"
+            ;;
+    esac
 
-        echo ${result} | \
-            jq  --monochrome-output \
-            --raw-output \
-            ".[] | select(.type == \"${1}\") | \"\(.ip)\(if .country_name != \"\" and  .country_name != false then \" [\(.country_name)\(if .asn != \"\" and .asn != false then \" \(.asn)\" else \"\" end)]\" else \"\" end)\""
+    if [ "${#id}" -ne 16 ]; then
+        echo_error "Invalid test ID returned by ${api_domain}."
+        exit "$error_code"
+    fi
+}
 
+request_result() {
+    if ! result=$(curl --silent --show-error --fail "https://${api_domain}/email-leak-test/test/${id}?${format}"); then
+        echo_error 'Unable to retrieve the email leak test result.'
+        exit "$error_code"
+    fi
+
+    if [ "$format" = json ]; then
+        response_error=$(printf '%s\n' "$result" | jq --raw-output 'if type == "object" then .error // empty else empty end' 2>/dev/null || :)
+
+        if [ -n "$response_error" ]; then
+            echo_error "$response_error"
+            exit "$error_code"
+        fi
+
+        if ! printf '%s\n' "$result" | jq --exit-status 'type == "array"' > /dev/null 2>&1; then
+            echo_error 'Invalid response from the email leak test.'
+            exit "$error_code"
+        fi
     else
-
-        while IFS= read -r line; do
-            if [[ "$line" != *${1} ]]; then
-                continue
-            fi
-
-            ip=$(echo $line | cut -d'|' -f 1)
-            code=$(echo $line | cut -d'|' -f 2)
-            country=$(echo $line | cut -d'|' -f 3)
-            asn=$(echo $line | cut -d'|' -f 4)
-
-            if [ -z "${ip// }" ]; then
-                 continue
-            fi
-
-            if [ -z "${country// }" ]; then
-                 echo "$ip"
-            else
-                 if [ -z "${asn// }" ]; then
-                     echo "$ip [$country]"
-                 else
-                     echo "$ip [$country, $asn]"
-                 fi
-            fi
-        done <<< "$result"
-
+        case "$result" in
+            ERROR:*)
+                echo_error "$result"
+                exit "$error_code"
+                ;;
+        esac
     fi
 }
 
-program_exit curl
-program_exit ping
-program_exit mail
+print_servers() {
+    record_type=$1
+
+    if [ "$jq_exists" -eq 1 ]; then
+        printf '%s\n' "$result" |
+            jq --monochrome-output \
+                --raw-output \
+                --arg record_type "$record_type" \
+                '.[] | select(.type == $record_type) |
+                    if $record_type == "done" then .done
+                    else "\(.ip)\(if .country_name != "" and .country_name != false then " [\(.country_name)\(if .asn != "" and .asn != false then ", \(.asn)" else "" end)]" else "" end)"
+                    end'
+        return
+    fi
+
+    printf '%s\n' "$result" |
+        while IFS='|' read -r ip code country asn type; do
+            [ "$type" = "$record_type" ] || continue
+
+            case "$ip" in
+                *[![:space:]]*) ;;
+                *) continue ;;
+            esac
+
+            case "$country" in
+                *[![:space:]]*)
+                    case "$asn" in
+                        *[![:space:]]*) printf '%s [%s, %s]\n' "$ip" "$country" "$asn" ;;
+                        *) printf '%s [%s]\n' "$ip" "$country" ;;
+                    esac
+                    ;;
+                *)
+                    printf '%s\n' "$ip"
+                    ;;
+            esac
+        done
+}
+
+require_command curl
+require_command mail
 check_internet_connection
 
-if command -v jq &> /dev/null; then
+if command -v jq > /dev/null 2>&1; then
     jq_exists=1
 else
     jq_exists=0
 fi
 
-if hash shuf 2>/dev/null; then
-    id=$(shuf -i 1000000-9999999 -n 1)
+request_test_id
+
+if [ "$jq_exists" -eq 1 ]; then
+    format=json
 else
-    id=$(jot -w %i -r 1 1000000 9999999)
+    format=txt
 fi
 
-if (( $jq_exists )); then
-    format="json"
-else
-    format="txt"
+request_result
+
+if ! mail -s 'Test' "${id}@bash.ws" < /dev/null > /dev/null; then
+    echo_error 'Email was not sent.'
+    exit "$error_code"
 fi
 
-result=$(curl --silent "https://${api_domain}/email-leak-test/test/${id}?${format}")
+while :; do
+    request_result
+    is_done=$(print_servers done)
 
-mail -s "Test" ${id}@bash.ws  < /dev/null > /dev/null
+    case "$is_done" in
+        *1*) break ;;
+    esac
 
-for (( ; ; ))
-do
-    result=$(curl --silent "https://${api_domain}/email-leak-test/test/${id}?${format}")
-
-    is_done=$(print_servers "done")
-
-    if [[ $is_done == *"1"* ]]; then
-
-        break
-    fi
-
+    sleep 1
 done
 
-echo_bold "Your IP:"
-print_servers "ip"
+echo_bold 'Your IP:'
+print_servers ip
 
-echo ""
-ips_count=$(print_servers "mail" | wc -l)
-if [ ${ips_count} -eq "0" ];then
-    echo_bold "No IPs found in mail header"
+printf '\n'
+ips_count=$(print_servers mail | wc -l)
+if [ "$ips_count" -eq 0 ]; then
+    echo_bold 'No IPs found in mail header'
+elif [ "$ips_count" -eq 1 ]; then
+    echo_bold "Mail header has got ${ips_count} IP:"
+    print_servers mail
 else
-    if [ ${ips_count} -eq "1" ];then
-        echo_bold "Mail header has got ${ips_count} IP:"
-    else
-        echo_bold "Mail header has got ${ips_count} IPs:"
-    fi
-    print_servers "mail"
+    echo_bold "Mail header has got ${ips_count} IPs:"
+    print_servers mail
 fi
 
-echo ""
-echo_bold "Conclusion:"
-print_servers "conclusion"
+printf '\n'
+echo_bold 'Conclusion:'
+print_servers conclusion
 
 exit 0

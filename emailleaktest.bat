@@ -1,145 +1,205 @@
 @echo off
+setlocal EnableExtensions DisableDelayedExpansion
 
-rem Any questions: tutumbul@gmail.com
-rem https://bash.ws/emailleak
+rem Email IP leak test client for bash.ws.
+rem Project: https://github.com/macvk/emailleaktest
+rem SPDX-License-Identifier: MIT
 
-for /F "tokens=*" %%g IN ('powershell -command "& { Get-Random -Minimum 1000000 -Maximum 9999999 }"') do (set /a leak_id=%%g)
+set "api_domain=bash.ws"
+set "leak_id="
+set "random_suffix=%RANDOM%-%RANDOM%"
+set "id_file=%TEMP%\emailleaktest-%random_suffix%-id.tmp"
+set "result_file=%TEMP%\emailleaktest-%random_suffix%-result.tmp"
+set "smtp_script=%TEMP%\emailleaktest-%random_suffix%-smtp.ps1"
 
-rem echo %leak_id%
+where curl.exe >nul 2>&1
 
-powershell -command "& { (New-Object Net.WebClient).DownloadFile('https://bash.ws/email-leak-test/test/%leak_id%?txt', '%leak_id%.txt') }"
-
-echo $to = "%leak_id%@bash.ws" > r.ps1
-echo while ($true) >> r.ps1
-echo ^{ >> r.ps1
-echo $username = Read-Host 'What is your email?' >> r.ps1
-echo if ($username.indexOf("@") -ne -1) >> r.ps1
-echo ^{ >> r.ps1
-echo break; >> r.ps1
-echo ^} >> r.ps1
-echo ^echo "Warning. Wrong email address"; >> r.ps1
-echo ^} >> r.ps1
-echo if ($username.indexOf("@gmail.com")) >> r.ps1
-echo ^{ >> r.ps1
-echo ^echo "Warning. Please enable less secure apps to get the script working, https://myaccount.google.com/lesssecureapps"; >> r.ps1
-echo ^} >> r.ps1
-echo $smtpdomain = $username.Substring($username.indexOf("@")+1); >> r.ps1
-echo $smtpdomain = "smtp.$smtpdomain"; >> r.ps1
-echo $inputsmtp = Read-Host "What is your outgoing smtp server [leave empty to use $smtpdomain]?" >> r.ps1
-echo if ($inputsmtp -ne "") >> r.ps1
-echo ^{ >> r.ps1
-echo $smtp = $inputsmtp; >> r.ps1
-echo ^} >> r.ps1
-echo $password = Read-Host 'What is your password?' -AsSecureString >> r.ps1
-echo $pw = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($password)) >> r.ps1
-echo $message = new-object Net.Mail.MailMessage; >> r.ps1
-echo $message.From = $username; >> r.ps1
-echo $message.To.Add($to);; >> r.ps1
-echo $message.Subject = ""; >> r.ps1
-echo $message.Body = ""; >> r.ps1
-echo ^echo "$smtp"; >> r.ps1
-echo $smtp = new-object Net.Mail.SmtpClient($smtpdomain, "587"); >> r.ps1
-echo $smtp.EnableSSL = $true; >> r.ps1
-echo $smtp.Credentials = New-Object System.Net.NetworkCredential($username, $pw); >> r.ps1
-echo $result = 1; >> r.ps1
-echo try >> r.ps1
-echo ^{ >> r.ps1
-echo $smtp.send($message); >> r.ps1
-echo ^} >> r.ps1
-echo catch >> r.ps1
-echo ^{ >> r.ps1
-echo ^echo "Error. Email was not sent, please check username and password. Try again..." >> r.ps1
-echo $result = 0; >> r.ps1
-echo ^} >> r.ps1
-echo exit $result; >> r.ps1
-
-PowerShell -NoProfile -ExecutionPolicy Bypass -Command "& './r.ps1'"
-
-
-if "%errorlevel%" == "0" (
-   del /q %leak_id%.txt
-   del /q r.ps1
-   exit
+if errorlevel 1 (
+    echo Please install curl.>&2
+    exit /b 1
 )
 
+call :request_id
 
-echo|set /p="Checking."
-
-:loop
-
-powershell -command "& { (New-Object Net.WebClient).DownloadFile('https://bash.ws/email-leak-test/test/%leak_id%?txt', '%leak_id%.txt') }"
-
-echo|set /p="."
-
-for /f "tokens=1,2,3,4,5 delims=|" %%1 in (%leak_id%.txt) do (
-    if "%%5" == "done" (
-        if "%%1" == "1" (
-            goto :stop
-        ) 
-    )
+if errorlevel 1 (
+    echo Unable to obtain a test ID from %api_domain%.>&2
+    call :cleanup
+    exit /b 1
 )
-    
-goto loop
 
-:stop
+call :request_result
 
+if errorlevel 1 (
+    echo Unable to initialize the email leak test.>&2
+    call :cleanup
+    exit /b 1
+)
+
+> "%smtp_script%" echo $ErrorActionPreference = 'Stop'
+>> "%smtp_script%" echo $to = '%leak_id%@%api_domain%'
+>> "%smtp_script%" echo while ($true)
+>> "%smtp_script%" echo ^{
+>> "%smtp_script%" echo     $sender = Read-Host 'Sender email'
+>> "%smtp_script%" echo     try
+>> "%smtp_script%" echo     ^{
+>> "%smtp_script%" echo         $address = [Net.Mail.MailAddress]$sender
+>> "%smtp_script%" echo         break
+>> "%smtp_script%" echo     ^}
+>> "%smtp_script%" echo     catch
+>> "%smtp_script%" echo     ^{
+>> "%smtp_script%" echo         Write-Host 'Warning. Wrong email address'
+>> "%smtp_script%" echo     ^}
+>> "%smtp_script%" echo ^}
+>> "%smtp_script%" echo $smtpHost = 'smtp.' + $address.Host
+>> "%smtp_script%" echo $inputHost = Read-Host "SMTP server [$smtpHost]"
+>> "%smtp_script%" echo if ($inputHost)
+>> "%smtp_script%" echo ^{
+>> "%smtp_script%" echo     $smtpHost = $inputHost
+>> "%smtp_script%" echo ^}
+>> "%smtp_script%" echo $smtpPort = 587
+>> "%smtp_script%" echo $inputPort = Read-Host 'SMTP port [587]'
+>> "%smtp_script%" echo if ($inputPort)
+>> "%smtp_script%" echo ^{
+>> "%smtp_script%" echo     $parsedPort = 0
+>> "%smtp_script%" echo     if (-not [int]::TryParse($inputPort, [ref]$parsedPort) -or $parsedPort -lt 1 -or $parsedPort -gt 65535)
+>> "%smtp_script%" echo     ^{
+>> "%smtp_script%" echo         Write-Host 'Error. Invalid SMTP port.'
+>> "%smtp_script%" echo         exit 1
+>> "%smtp_script%" echo     ^}
+>> "%smtp_script%" echo     $smtpPort = $parsedPort
+>> "%smtp_script%" echo ^}
+>> "%smtp_script%" echo $smtpUsername = Read-Host "SMTP username [$sender]"
+>> "%smtp_script%" echo if (-not $smtpUsername)
+>> "%smtp_script%" echo ^{
+>> "%smtp_script%" echo     $smtpUsername = $sender
+>> "%smtp_script%" echo ^}
+>> "%smtp_script%" echo $password = Read-Host 'SMTP password' -AsSecureString
+>> "%smtp_script%" echo $message = $null
+>> "%smtp_script%" echo $smtp = $null
+>> "%smtp_script%" echo try
+>> "%smtp_script%" echo ^{
+>> "%smtp_script%" echo     $message = New-Object Net.Mail.MailMessage
+>> "%smtp_script%" echo     $message.From = $sender
+>> "%smtp_script%" echo     [void]$message.To.Add($to)
+>> "%smtp_script%" echo     $message.Subject = 'Test'
+>> "%smtp_script%" echo     $message.Body = ''
+>> "%smtp_script%" echo     $smtp = New-Object Net.Mail.SmtpClient($smtpHost, $smtpPort)
+>> "%smtp_script%" echo     $smtp.EnableSsl = $true
+>> "%smtp_script%" echo     $smtp.Credentials = New-Object Net.NetworkCredential($smtpUsername, $password)
+>> "%smtp_script%" echo     $smtp.Send($message)
+>> "%smtp_script%" echo ^}
+>> "%smtp_script%" echo catch
+>> "%smtp_script%" echo ^{
+>> "%smtp_script%" echo     Write-Host 'Error. Email was not sent. Check the sender, SMTP settings, and password.'
+>> "%smtp_script%" echo     exit 1
+>> "%smtp_script%" echo ^}
+>> "%smtp_script%" echo finally
+>> "%smtp_script%" echo ^{
+>> "%smtp_script%" echo     if ($null -ne $message) { $message.Dispose() }
+>> "%smtp_script%" echo     if ($null -ne $smtp) { $smtp.Dispose() }
+>> "%smtp_script%" echo ^}
+>> "%smtp_script%" echo exit 0
+
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%smtp_script%"
+
+if errorlevel 1 (
+    call :cleanup
+    exit /b 1
+)
+
+del /q "%smtp_script%" >nul 2>&1
+<nul set /p "=Checking."
+
+:poll
+call :request_result
+
+if errorlevel 1 (
+    echo(
+    echo Unable to retrieve the email leak test result.>&2
+    call :cleanup
+    exit /b 1
+)
+
+for /f "usebackq tokens=1-5 delims=|" %%A in ("%result_file%") do (
+    if "%%E" == "done" if "%%A" == "1" goto complete
+)
+
+<nul set /p "=."
+timeout /t 1 /nobreak >nul
+goto poll
+
+:complete
 echo done.
-
+echo(
 echo Your IP:
-for /f "tokens=1,2,3,4,5 delims=|" %%1 in (%leak_id%.txt) do (
-    if "%%5" == "ip" (
-        if [%%1] neq [] (
-            if [%%3] neq [] (
-                if [%%4] neq [] (
-                    echo %%1 [%%3, %%4]
-                ) else (
-                    echo %%1 [%%3]
-                )
-            ) else (
-                echo %%1
-            )
-        ) 
-    )
+for /f "usebackq tokens=1-5 delims=|" %%A in ("%result_file%") do (
+    if "%%E" == "ip" call :print_address "%%A" "%%C" "%%D"
 )
 
 set /a ips=0
-
-for /f "tokens=1,2,3,4,5 delims=|" %%1 in (%leak_id%.txt) do (
-    if "%%5" == "mail" (
-        set /a ips=ips+1
-    )
+for /f "usebackq tokens=1-5 delims=|" %%A in ("%result_file%") do (
+    if "%%E" == "mail" set /a ips+=1
 )
 
+echo(
 if "%ips%" == "0" (
     echo No IPs found in mail header
+) else if "%ips%" == "1" (
+    echo Mail header has got 1 IP:
 ) else (
-    echo Your email header has %ips% IPs:
-    for /f "tokens=1,2,3,4,5 delims=|" %%1 in (%leak_id%.txt) do (
-        if "%%5" == "mail" (
-            if [%%1] neq [] (
-                if [%%3] neq [] (
-                    if [%%4] neq [] (
-                        echo %%1 [%%3, %%4]
-                    ) else (
-                        echo %%1 [%%3]
-                    )
-                ) else (
-                    echo %%1
-                )
-            ) 
-        )
+    echo Mail header has got %ips% IPs:
+)
+
+if not "%ips%" == "0" (
+    for /f "usebackq tokens=1-5 delims=|" %%A in ("%result_file%") do (
+        if "%%E" == "mail" call :print_address "%%A" "%%C" "%%D"
     )
 )
 
+echo(
 echo Conclusion:
-for /f "tokens=1,2,3,4,5 delims=|" %%1 in (%leak_id%.txt) do (
-    if "%%5" == "conclusion" (
-        if [%%1] neq [] (
-            echo %%1
-        ) 
-    )
+for /f "usebackq tokens=1-5 delims=|" %%A in ("%result_file%") do (
+    if "%%E" == "conclusion" if not "%%A" == "" echo %%A
 )
 
+call :cleanup
+exit /b 0
 
-del /q %leak_id%.txt
-del /q r.ps1
+:request_id
+curl.exe --fail --silent --show-error --max-time 30 "https://%api_domain%/id" --output "%id_file%"
+
+if errorlevel 1 exit /b 1
+
+findstr /r /c:"[^A-Za-z0-9]" "%id_file%" >nul
+
+if not errorlevel 1 exit /b 1
+set /p "leak_id="<"%id_file%"
+del /q "%id_file%" >nul 2>&1
+if not defined leak_id exit /b 1
+if "%leak_id:~15,1%" == "" exit /b 1
+if not "%leak_id:~16,1%" == "" exit /b 1
+exit /b 0
+
+:request_result
+curl.exe --fail --silent --show-error --max-time 30 "https://%api_domain%/email-leak-test/test/%leak_id%?txt" --output "%result_file%"
+
+if errorlevel 1 exit /b 1
+
+findstr /b /c:"ERROR:" "%result_file%" >nul
+if not errorlevel 1 exit /b 1
+exit /b 0
+
+:print_address
+if "%~1" == "" exit /b 0
+if "%~2" == "" (
+    echo %~1
+) else if "%~3" == "" (
+    echo %~1 [%~2]
+) else (
+    echo %~1 [%~2, %~3]
+)
+exit /b 0
+
+:cleanup
+del /q "%id_file%" "%result_file%" "%smtp_script%" >nul 2>&1
+exit /b 0
