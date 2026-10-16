@@ -164,16 +164,13 @@ def test_complete(records):
 
 def format_address(record):
     address = text(record, 'ip')
-    country = text(record, 'country_name')
-    asn = text(record, 'asn')
+    location = [text(record, field) for field in ('city_name', 'region_name', 'country_name', 'asn')]
+    location = [value for value in location if value]
 
-    if not country:
+    if not location:
         return address
 
-    if not asn:
-        return '{} [{}]'.format(address, country)
-
-    return '{} [{}, {}]'.format(address, country, asn)
+    return '{} [{}]'.format(address, ', '.join(location))
 
 
 def print_result(records):

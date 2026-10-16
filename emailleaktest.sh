@@ -93,13 +93,16 @@ print_servers() {
                 --arg record_type "$record_type" \
                 '.[] | select(.type == $record_type) |
                     if $record_type == "done" then .done
-                    else "\(.ip)\(if .country_name != "" and .country_name != false then " [\(.country_name)\(if .asn != "" and .asn != false then ", \(.asn)" else "" end)]" else "" end)"
+                    else . as $record |
+                        [$record.city_name, $record.region_name, $record.country_name, $record.asn] |
+                        map(select(. != null and . != false and . != "")) as $location |
+                        "\($record.ip)\(if ($location | length) > 0 then " [\($location | join(", "))]" else "" end)"
                     end'
         return
     fi
 
     printf '%s\n' "$result" |
-        while IFS='|' read -r ip code country asn type; do
+        while IFS='|' read -r ip code country asn type city region; do
             [ "$type" = "$record_type" ] || continue
 
             case "$ip" in
@@ -107,17 +110,24 @@ print_servers() {
                 *) continue ;;
             esac
 
-            case "$country" in
-                *[![:space:]]*)
-                    case "$asn" in
-                        *[![:space:]]*) printf '%s [%s, %s]\n' "$ip" "$country" "$asn" ;;
-                        *) printf '%s [%s]\n' "$ip" "$country" ;;
-                    esac
-                    ;;
-                *)
-                    printf '%s\n' "$ip"
-                    ;;
-            esac
+            location=''
+            for value in "$city" "$region" "$country" "$asn"; do
+                case "$value" in
+                    *[![:space:]]*)
+                        if [ -n "$location" ]; then
+                            location="${location}, ${value}"
+                        else
+                            location=$value
+                        fi
+                        ;;
+                esac
+            done
+
+            if [ -n "$location" ]; then
+                printf '%s [%s]\n' "$ip" "$location"
+            else
+                printf '%s\n' "$ip"
+            fi
         done
 }
 
@@ -136,7 +146,7 @@ request_test_id
 if [ "$jq_exists" -eq 1 ]; then
     format=json
 else
-    format=txt
+    format=txt=2
 fi
 
 request_result

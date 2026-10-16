@@ -52,6 +52,8 @@ func (value *apiText) UnmarshalJSON(data []byte) error {
 type apiRecord struct {
 	IP          apiText `json:"ip"`
 	CountryName apiText `json:"country_name"`
+	CityName    apiText `json:"city_name"`
+	RegionName  apiText `json:"region_name"`
 	ASN         apiText `json:"asn"`
 	Done        apiText `json:"done"`
 	Type        string  `json:"type"`
@@ -358,18 +360,19 @@ func testComplete(records []apiRecord) bool {
 
 func formatAddress(record apiRecord) string {
 	address := string(record.IP)
-	country := string(record.CountryName)
-	asn := string(record.ASN)
+	location := []string{}
 
-	if country == "" {
+	for _, value := range []apiText{record.CityName, record.RegionName, record.CountryName, record.ASN} {
+		if value != "" {
+			location = append(location, string(value))
+		}
+	}
+
+	if len(location) == 0 {
 		return address
 	}
 
-	if asn == "" {
-		return fmt.Sprintf("%s [%s]", address, country)
-	}
-
-	return fmt.Sprintf("%s [%s, %s]", address, country, asn)
+	return fmt.Sprintf("%s [%s]", address, strings.Join(location, ", "))
 }
 
 func recordsOfType(records []apiRecord, recordType string) []apiRecord {

@@ -132,8 +132,8 @@ goto poll
 echo done.
 echo(
 echo Your IP:
-for /f "usebackq tokens=1-5 delims=|" %%A in ("%result_file%") do (
-    if "%%E" == "ip" call :print_address "%%A" "%%C" "%%D"
+for /f "usebackq tokens=1-7 delims=|" %%A in ("%result_file%") do (
+    if "%%E" == "ip" call :print_address "%%A" "%%F" "%%G" "%%C" "%%D"
 )
 
 set /a ips=0
@@ -151,8 +151,8 @@ if "%ips%" == "0" (
 )
 
 if not "%ips%" == "0" (
-    for /f "usebackq tokens=1-5 delims=|" %%A in ("%result_file%") do (
-        if "%%E" == "mail" call :print_address "%%A" "%%C" "%%D"
+    for /f "usebackq tokens=1-7 delims=|" %%A in ("%result_file%") do (
+        if "%%E" == "mail" call :print_address "%%A" "%%F" "%%G" "%%C" "%%D"
     )
 )
 
@@ -181,7 +181,7 @@ if not "%leak_id:~16,1%" == "" exit /b 1
 exit /b 0
 
 :request_result
-curl.exe --fail --silent --show-error --max-time 30 "https://%api_domain%/email-leak-test/test/%leak_id%?txt" --output "%result_file%"
+curl.exe --fail --silent --show-error --max-time 30 "https://%api_domain%/email-leak-test/test/%leak_id%?txt=2" --output "%result_file%"
 
 if errorlevel 1 exit /b 1
 
@@ -191,13 +191,21 @@ exit /b 0
 
 :print_address
 if "%~1" == "" exit /b 0
-if "%~2" == "" (
-    echo %~1
-) else if "%~3" == "" (
-    echo %~1 [%~2]
-) else (
-    echo %~1 [%~2, %~3]
+setlocal EnableDelayedExpansion
+set "address_location="
+
+for %%A in ("%~2" "%~3" "%~4" "%~5") do (
+    if not "%%~A" == "" (
+        if defined address_location (set "address_location=!address_location!, %%~A") else (set "address_location=%%~A")
+    )
 )
+
+if not defined address_location (
+    echo %~1
+) else (
+    echo %~1 [!address_location!]
+)
+endlocal
 exit /b 0
 
 :cleanup
