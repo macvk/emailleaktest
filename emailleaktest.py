@@ -13,6 +13,7 @@ import ssl
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from email.message import EmailMessage
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -48,6 +49,17 @@ def request_test_id():
         raise APIError('invalid test ID returned by /id')
 
     return test_id
+
+
+def register_address(family, test_id):
+    url = 'https://{}.{}/myip/test/{}'.format(family, API_DOMAIN, test_id)
+    headers = {'User-Agent': 'bash.ws emailleaktest-python/' + VERSION}
+
+    try:
+        with urlopen(Request(url, headers=headers), timeout=5) as response:
+            response.read()
+    except (HTTPError, URLError, OSError):
+        pass
 
 
 def decode_records(data):
@@ -207,6 +219,13 @@ def print_result(records):
 
 def run():
     test_id = request_test_id()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(register_address, family, test_id) for family in ('ipv4', 'ipv6')]
+
+        for future in futures:
+            future.result()
+
     request_result(test_id)
     send_email(test_id)
 

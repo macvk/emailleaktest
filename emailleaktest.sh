@@ -143,6 +143,9 @@ fi
 
 request_test_id
 
+curl -4 --silent --show-error --fail --max-time 5 "https://ipv4.${api_domain}/myip/test/${id}" > /dev/null 2>&1 || :
+curl -6 --silent --show-error --fail --max-time 5 "https://ipv6.${api_domain}/myip/test/${id}" > /dev/null 2>&1 || :
+
 if [ "$jq_exists" -eq 1 ]; then
     format=json
 else

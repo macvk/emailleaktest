@@ -21,6 +21,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -120,6 +121,36 @@ func (client *apiClient) testID() (string, error) {
 	}
 
 	return value, nil
+}
+
+func (client *apiClient) registerAddresses(testID string) {
+	var wait sync.WaitGroup
+
+	for _, family := range []string{"ipv4", "ipv6"} {
+		wait.Add(1)
+
+		go func(family string) {
+			defer wait.Done()
+			target := "https://" + family + "." + apiDomain + "/myip/test/" + testID
+			request, err := http.NewRequest(http.MethodGet, target, nil)
+
+			if err != nil {
+				return
+			}
+
+			request.Header.Set("User-Agent", "bash.ws emailleaktest-go/"+version)
+			addressClient := &http.Client{Timeout: 5 * time.Second}
+			response, err := addressClient.Do(request)
+
+			if err != nil {
+				return
+			}
+
+			response.Body.Close()
+		}(family)
+	}
+
+	wait.Wait()
 }
 
 func decodeRecords(data []byte) ([]apiRecord, error) {
@@ -434,6 +465,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
+	client.registerAddresses(testID)
 
 	if _, err := client.result(testID); err != nil {
 		return err

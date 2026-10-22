@@ -27,6 +27,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
+curl.exe --fail --silent --show-error --max-time 5 -4 "https://ipv4.%api_domain%/myip/test/%leak_id%" >nul 2>&1
+curl.exe --fail --silent --show-error --max-time 5 -6 "https://ipv6.%api_domain%/myip/test/%leak_id%" >nul 2>&1
+
 call :request_result
 
 if errorlevel 1 (
